@@ -58,7 +58,13 @@
       flex-direction: column;
       transition: background-color var(--transition-fast), color var(--transition-fast);
     }
-
+html.ccare-locked, body.ccare-locked {
+  overflow: hidden !important;
+  height: 100vh !important;
+  position: fixed !important;
+  width: 100vw !important;
+  touch-action: none !important;
+}
     /* =========================================================
        2. شريط التنقل الأساسي المزدوج الصفوف
        ========================================================= */
@@ -6739,22 +6745,28 @@ body.light-theme #rbt-packages {
 /* ==========================================
    بوابة تسجيل دخول CCare الرقمية الحديثة
    ========================================== */
+/* ==========================================
 
-/* الخلفية الشفافة المغطية للشاشة */
+/* الخلفية الشفافة المغطية للشاشة بالكامل */
 .ccare-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
   background: radial-gradient(circle at 50% 30%, rgba(108, 92, 231, 0.15), transparent 70%),
-              rgba(248, 249, 253, 0.92);
+              rgba(248, 249, 253, 0.96) !important;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  z-index: 99999;
-  display: flex;
+  z-index: 999999 !important; /* التأكد من ظهوره فوق كل عناصر الصفحة */
+  display: flex !important;
   align-items: center;
   justify-content: center;
+  overflow-y: auto !important; /* السماح بالتمرير داخل المربع إذا كانت شاشة الموبايل صغيرة جداً */
+  padding: 1rem;
+  box-sizing: border-box;
 }
 
 /* بطاقة تسجيل الدخول */
@@ -6769,6 +6781,7 @@ body.light-theme #rbt-packages {
   text-align: center;
   position: relative;
   box-sizing: border-box;
+  margin: auto;
 }
 
 .ccare-login-card h2 {
@@ -6929,7 +6942,7 @@ body.light-theme #rbt-packages {
    ========================================== */
 [data-theme="dark"] .ccare-overlay {
   background: radial-gradient(circle at 50% 30%, rgba(108, 92, 231, 0.2), transparent 70%),
-              rgba(15, 15, 23, 0.94);
+              rgba(15, 15, 23, 0.97) !important;
 }
 
 [data-theme="dark"] .ccare-login-card {
@@ -13198,7 +13211,28 @@ function initRBTModule() {
 // ==========================================
 // 1. تسجيل الدخول
 // ==========================================
-  const DEFAULT_PASSWORD = "123";
+ const DEFAULT_PASSWORD = "123";
+
+// ==========================================
+// 0. دالتان لقفل وفتح التمرير في الشاشة
+// ==========================================
+function lockScreen() {
+  document.documentElement.classList.add('ccare-locked');
+  document.body.classList.add('ccare-locked');
+}
+
+function unlockScreen() {
+  document.documentElement.classList.remove('ccare-locked');
+  document.body.classList.remove('ccare-locked');
+}
+
+// قفل الشاشة فور فتح الصفحة والتأكد من وجود طبقة الدخول
+document.addEventListener("DOMContentLoaded", () => {
+  const overlay = document.getElementById("ccare-loginOverlay");
+  if (overlay && !overlay.classList.contains("ccare-hidden")) {
+    lockScreen();
+  }
+});
 
 // ==========================================
 // 1. قائمة اليوزرات وتحديد الصلاحيات (Role)
@@ -13206,7 +13240,7 @@ function initRBTModule() {
 const MANUAL_USERS = {
   // 🔐 حسابات الأدمن (لها صلاحية التحكم بالنسخ الاحتياطي):
   "admin": { pass: "admin2026", status: "active", role: "admin" },
-  "azmi":  { pass: "azmi123",  status: "active", role: "admin" },
+  "azmi":  { pass: "azmi123",   status: "active", role: "admin" },
 
   // 👤 حسابات الموظفين (User):
   "user1": { pass: DEFAULT_PASSWORD, status: "active", role: "user" },
@@ -13336,9 +13370,9 @@ function handleCcareLogin(event) {
 }
 
 // ==========================================
-// 5. دالة حفظ كلمة السر الجديدة
+// 5. دالة حفظ كلمة السر الجديدة (محدثة للربط السحابي)
 // ==========================================
-function handleChangePassword(event) {
+async function handleChangePassword(event) {
   event.preventDefault();
   
   const newPass = document.getElementById("ccare-newPassword").value.trim();
@@ -13358,6 +13392,7 @@ function handleChangePassword(event) {
     return;
   }
 
+  // 1. التحديث المحلي في المتصفح
   const usersDB = getUsersDatabase();
   if (usersDB[currentUserChangingPass]) {
     usersDB[currentUserChangingPass].pass = newPass;
@@ -13365,10 +13400,17 @@ function handleChangePassword(event) {
     loggedInUserRole = usersDB[currentUserChangingPass].role || "user";
   }
 
+  // 2. التحديث المباشر أونلاين في سحابة Firebase ☁️
+  if (typeof updateFirebasePassword === "function") {
+    const res = await updateFirebasePassword(currentUserChangingPass, newPass);
+    if (!res.success) {
+      console.warn("تعذر التحديث في السحابة، تم الحفظ محلياً فقط.");
+    }
+  }
+
   changeError.style.display = "none";
   finishLogin();
 }
-
 // ==========================================
 // 6. دالة إعادة ضبط كلمة السر
 // ==========================================
@@ -13413,11 +13455,14 @@ function handleResetPassword(event) {
 }
 
 // ==========================================
-// 7. إنهاء الدخول وإظهار اللوحة للأدمن فقط
+// 7. إنهاء الدخول، فك قفل الشاشة، وإظهار اللوحة للأدمن فقط
 // ==========================================
 function finishLogin() {
   document.getElementById("ccare-loginOverlay").classList.add("ccare-hidden");
   
+  // فك القفل عن الحركة والشاشة بعد تسجيل الدخول بنجاح
+  unlockScreen();
+
   // التحقق من صلاحيات المسجل: إذا كان الأدمن تظهر لوحة التحكم الخاصة بالنسخ الاحتياطي
   const adminPanel = document.getElementById("ccare-adminControlPanel");
   if (adminPanel) {
